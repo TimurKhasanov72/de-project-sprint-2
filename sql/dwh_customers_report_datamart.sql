@@ -4,23 +4,23 @@ DROP TABLE IF EXISTS dwh.customer_report_datamart;
 CREATE TABLE IF NOT EXISTS dwh.customer_report_datamart (
     id BIGINT GENERATED ALWAYS AS IDENTITY NOT NULL, -- идентификатор записи
     customer_id BIGINT NOT NULL, -- идентификатор заказчика
-    customer_name VARCHAR NOT NULL, -- Ф.И.О. заказчика
-    customer_address VARCHAR NOT NULL, -- адрес заказчика
+    customer_name VARCHAR(80) NOT NULL, -- Ф.И.О. заказчика
+    customer_address VARCHAR(200) NOT NULL, -- адрес заказчика
     customer_birthday DATE NOT NULL, -- дата рождения заказчика
-    customer_email VARCHAR NOT NULL, -- электронная почта заказчика
+    customer_email VARCHAR(100) NOT NULL, -- электронная почта заказчика
     customer_money NUMERIC(15,2) NOT NULL, -- сумма, которую потратил заказчик
     platform_money BIGINT NOT NULL, -- сумма, которую заработала платформа от продаж мастера за месяц
-    count_order BIGINT NOT NULL, -- количество заказов у заказчика
+    count_order INT NOT NULL, -- количество заказов у заказчика
     avg_price_order NUMERIC(10,2) NOT NULL, -- средняя стоимость одного заказа у заказчика за месяц
     median_time_order_completed NUMERIC(10,1), -- медианное время в днях от момента создания заказа до его завершения за месяц
-    top_product_category VARCHAR NOT NULL, -- самая популярная категория товаров у этого заказчика
+    top_product_category VARCHAR(100) NOT NULL, -- самая популярная категория товаров у этого заказчика
     top_craftsman_id BIGINT NOT NULL, -- идентификатор самого популярного мастера ручной работы у заказчика.
-    count_order_created BIGINT NOT NULL, -- количество созданных заказов за месяц
-    count_order_in_progress BIGINT NOT NULL, -- количество заказов в процессе изготовки за месяц
-    count_order_delivery BIGINT NOT NULL, -- количество заказов в доставке за месяц
-    count_order_done BIGINT NOT NULL, -- количество завершённых заказов за месяц
-    count_order_not_done BIGINT NOT NULL, -- количество незавершённых заказов за месяц
-    report_period VARCHAR NOT NULL, -- отчётный период год и месяц
+    count_order_created INT NOT NULL, -- количество созданных заказов за месяц
+    count_order_in_progress INT NOT NULL, -- количество заказов в процессе изготовки за месяц
+    count_order_delivery INT NOT NULL, -- количество заказов в доставке за месяц
+    count_order_done INT NOT NULL, -- количество завершённых заказов за месяц
+    count_order_not_done INT NOT NULL, -- количество незавершённых заказов за месяц
+    report_period VARCHAR(7) NOT NULL, -- отчётный период год и месяц
     CONSTRAINT customer_report_datamart_pk PRIMARY KEY (id)
 );
 
@@ -58,10 +58,12 @@ dwh_delta AS ( -- определяем, какие данные были изм�
                 INNER JOIN dwh.d_customer dcs ON fo.customer_id = dcs.customer_id 
                 INNER JOIN dwh.d_product dp ON fo.product_id = dp.product_id 
                 LEFT JOIN dwh.customer_report_datamart crd ON dcs.customer_id = crd.customer_id
-                    WHERE (fo.load_dttm > (SELECT COALESCE(MAX(load_dttm),'1900-01-01') FROM dwh.load_dates_customer_report_datamart)) OR
-                            (dc.load_dttm > (SELECT COALESCE(MAX(load_dttm),'1900-01-01') FROM dwh.load_dates_customer_report_datamart)) OR
-                            (dcs.load_dttm > (SELECT COALESCE(MAX(load_dttm),'1900-01-01') FROM dwh.load_dates_customer_report_datamart)) OR
-                            (dp.load_dttm > (SELECT COALESCE(MAX(load_dttm),'1900-01-01') FROM dwh.load_dates_customer_report_datamart))
+                    WHERE GREATEST(
+                            fo.load_dttm,
+                            dc.load_dttm,
+                            dcs.load_dttm,
+                            dp.load_dttm
+                        ) > COALESCE((SELECT MAX(load_dttm) FROM dwh.load_dates_customer_report_datamart), '1900-01-01')
 ),
 dwh_update_delta AS ( -- делаем выборку мастеров ручной работы, по которым были изменения в DWH. По этим мастерам данные в витрине нужно будет обновить
     SELECT     
@@ -160,6 +162,7 @@ dwh_delta_update_result AS ( -- делаем перерасчёт для сущ�
                                 SUM(T1.product_price) - (SUM(T1.product_price) * 0.1) AS customer_money,
                                 SUM(T1.product_price) * 0.1 AS platform_money,
                                 COUNT(order_id) AS count_order,
+                                AVG(T1.product_price) AS avg_price_order,
                                 PERCENTILE_CONT(0.5) WITHIN GROUP(ORDER BY diff_order_date) AS median_time_order_completed,
                                 SUM(CASE WHEN T1.order_status = 'created' THEN 1 ELSE 0 END) AS count_order_created, 
                                 SUM(CASE WHEN T1.order_status = 'in progress' THEN 1 ELSE 0 END) AS count_order_in_progress, 
